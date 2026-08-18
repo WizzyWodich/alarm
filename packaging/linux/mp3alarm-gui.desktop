@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=MP3 Alarm
+Comment=Настройка будильника MP3 Alarm
+Exec=%h/.local/bin/mp3alarm-gui
+Icon=multimedia-player
+Terminal=false
+Categories=Utility;Audio;
