@@ -63,6 +63,17 @@ $shortcut.IconLocation = $guiPath
 
 $shortcut.Save()
 
+Write-Host "== Ярлык GUI на рабочем столе =="
+
+$desktopPath = [Environment]::GetFolderPath("Desktop")
+$desktopShortcutPath = Join-Path $desktopPath "MP3 Alarm.lnk"
+
+$shortcut = $shell.CreateShortcut($desktopShortcutPath)
+$shortcut.TargetPath = $guiPath
+$shortcut.WorkingDirectory = Split-Path $guiPath
+$shortcut.IconLocation = $guiPath
+$shortcut.Save()
+
 Write-Host ""
 Write-Host "Готово."
 Write-Host ""
