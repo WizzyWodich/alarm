@@ -5,3 +5,4 @@ build/
 *.exe
 *.msi
 *.dll
+*.gz
