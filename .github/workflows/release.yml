@@ -1,0 +1,73 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.7.0"
+          modules: "qtmultimedia"
+
+      - name: Configure
+        run: cmake -B build -S . -DCMAKE_PREFIX_PATH="${{ env.QT_ROOT_DIR }}"
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Deploy Qt dependencies
+        run: |
+          cd build/Release
+          windeployqt.exe Alarm.exe
+          windeployqt.exe mp3player.exe --multimedia
+          windeployqt.exe mp3alarm-gui.exe
+
+      - name: Install NSIS
+        run: choco install nsis -y
+
+      - name: Package
+        run: cpack --config build/CPackConfig.cmake
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/MP3Alarm-*-win64.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.7.0"
+          modules: "qtmultimedia"
+
+      - name: Configure
+        run: cmake -B build -S .
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Package
+        run: |
+          cd build
+          tar -czf ../mp3alarm-linux-x86_64.tar.gz Alarm mp3player mp3alarm-gui
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: mp3alarm-linux-x86_64.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
