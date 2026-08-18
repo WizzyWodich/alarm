@@ -1,52 +1,67 @@
 $installDir = "$env:LOCALAPPDATA\MP3Alarm"
-$binDir = Join-Path $installDir "bin"
 
 New-Item -ItemType Directory -Force -Path $installDir | Out-Null
 
 Write-Host "== Копирование файлов =="
 Copy-Item -Path ".\*" -Destination $installDir -Recurse -Force
 
-$corePath = Join-Path $binDir "Alarm.exe"
-$guiPath  = Join-Path $binDir "mp3alarm-gui.exe"
+$corePath = Join-Path $installDir "bin\Alarm.exe"
+$guiPath  = Join-Path $installDir "bin\mp3alarm-gui.exe"
 
-Write-Host "== Регистрация автозапуска ядра (Task Scheduler) =="
+Write-Host "== Проверка файлов =="
 
-$action = New-ScheduledTaskAction `
-    -Execute $corePath `
-    -WorkingDirectory $binDir
+if (-not (Test-Path $corePath)) {
+    Write-Error "Alarm.exe не найден: $corePath"
+    exit 1
+}
 
-$trigger = New-ScheduledTaskTrigger -AtLogOn
+if (-not (Test-Path $guiPath)) {
+    Write-Error "mp3alarm-gui.exe не найден: $guiPath"
+    exit 1
+}
 
-$settings = New-ScheduledTaskSettingsSet `
-    -AllowStartIfOnBatteries `
-    -DontStopIfGoingOnBatteries `
-    -StartWhenAvailable `
-    -ExecutionTimeLimit ([TimeSpan]::Zero)
+Write-Host "Core: $corePath"
+Write-Host "GUI:  $guiPath"
 
-Register-ScheduledTask `
-    -TaskName "MP3AlarmCore" `
-    -Action $action `
-    -Trigger $trigger `
-    -Settings $settings `
-    -Description "MP3 Alarm - фоновый планировщик" `
-    -Force
+Write-Host "== Регистрация автозапуска ядра =="
+
+schtasks /Delete /TN "MP3AlarmCore" /F 2>$null
+
+$taskCommand = "`"$corePath`""
+
+schtasks /Create `
+    /TN "MP3AlarmCore" `
+    /TR $taskCommand `
+    /SC ONLOGON `
+    /RL LIMITED `
+    /F
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Не удалось создать задачу MP3AlarmCore"
+    exit 1
+}
 
 Write-Host "== Ярлык GUI в меню Пуск =="
 
 $startMenuPath = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\MP3 Alarm.lnk"
 
 $shell = New-Object -ComObject WScript.Shell
-
 $shortcut = $shell.CreateShortcut($startMenuPath)
+
 $shortcut.TargetPath = $guiPath
-$shortcut.WorkingDirectory = $binDir
+$shortcut.WorkingDirectory = Split-Path $guiPath
 $shortcut.IconLocation = $guiPath
+
 $shortcut.Save()
 
 Write-Host ""
 Write-Host "Готово."
-Write-Host "Ядро: $corePath"
-Write-Host "GUI:  $guiPath"
 Write-Host ""
-Write-Host "Запустить прямо сейчас:"
-Write-Host 'Start-ScheduledTask -TaskName "MP3AlarmCore"'
+Write-Host "Ядро:"
+Write-Host $corePath
+Write-Host ""
+Write-Host "GUI:"
+Write-Host $guiPath
+Write-Host ""
+Write-Host "Запустить ядро сейчас:"
+Write-Host 'schtasks /Run /TN "MP3AlarmCore"'
