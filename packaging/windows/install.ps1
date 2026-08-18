@@ -28,15 +28,24 @@ $binDir = Join-Path $installDir "bin"
 $corePath = Join-Path $binDir "Alarm.exe"
 $guiPath = Join-Path $binDir "mp3alarm-gui.exe"
 
+$runtimeDir = Join-Path $env:ProgramData "MP3Alarm"
+$launcherPath = Join-Path $runtimeDir "run-core.ps1"
+
+$taskName = "MP3AlarmCore"
+
 Write-Host "Install directory:"
 Write-Host "  $installDir"
+
+Write-Host "Runtime directory:"
+Write-Host "  $runtimeDir"
+
 Write-Host ""
 
 # ============================================================
-# Создание директории
+# Создание директорий
 # ============================================================
 
-Write-Host "== Создание директории =="
+Write-Host "== Создание директорий =="
 
 New-Item `
     -ItemType Directory `
@@ -44,8 +53,14 @@ New-Item `
     -Force |
     Out-Null
 
+New-Item `
+    -ItemType Directory `
+    -Path $runtimeDir `
+    -Force |
+    Out-Null
+
 # ============================================================
-# Копирование файлов
+# Копирование файлов программы
 # ============================================================
 
 Write-Host "== Копирование файлов =="
@@ -81,13 +96,40 @@ Write-Host "  $guiPath"
 Write-Host ""
 
 # ============================================================
-# Удаление старой задачи
+# Создание launcher
+# ============================================================
+
+Write-Host "== Создание Core launcher =="
+
+$launcherContent = @"
+`$ErrorActionPreference = "Stop"
+
+Set-Location -LiteralPath "$binDir"
+
+Start-Process `
+    -FilePath "$corePath" `
+    -WorkingDirectory "$binDir"
+"@
+
+Set-Content `
+    -Path $launcherPath `
+    -Value $launcherContent `
+    -Encoding UTF8 `
+    -Force
+
+Write-Host "Launcher:"
+Write-Host "  $launcherPath"
+
+Write-Host ""
+
+# ============================================================
+# Удаление старой Scheduled Task
 # ============================================================
 
 Write-Host "== Удаление старой задачи =="
 
 Unregister-ScheduledTask `
-    -TaskName "MP3AlarmCore" `
+    -TaskName $taskName `
     -Confirm:$false `
     -ErrorAction SilentlyContinue
 
@@ -105,53 +147,48 @@ $taskUser = "$env:USERDOMAIN\$env:USERNAME"
 Write-Host "Пользователь:"
 Write-Host "  $taskUser"
 
-Write-Host "Executable:"
-Write-Host "  $corePath"
-
-Write-Host "Working directory:"
-Write-Host "  $binDir"
-
 Write-Host ""
 
-# ------------------------------------------------------------
+# ============================================================
 # Action
-# ------------------------------------------------------------
+# ============================================================
 
 $action = New-ScheduledTaskAction `
-    -Execute $corePath `
-    -WorkingDirectory $binDir
+    -Execute "powershell.exe" `
+    -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$launcherPath`"" `
+    -WorkingDirectory $runtimeDir
 
-# ------------------------------------------------------------
+# ============================================================
 # Trigger
-# ------------------------------------------------------------
+# ============================================================
 
 $trigger = New-ScheduledTaskTrigger `
     -AtLogOn `
     -User $taskUser
 
-# ------------------------------------------------------------
+# ============================================================
 # Principal
-# ------------------------------------------------------------
+# ============================================================
 
 $principal = New-ScheduledTaskPrincipal `
     -UserId $taskUser `
     -LogonType Interactive `
     -RunLevel Limited
 
-# ------------------------------------------------------------
+# ============================================================
 # Settings
-# ------------------------------------------------------------
+# ============================================================
 
 $settings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries `
     -DontStopIfGoingOnBatteries
 
-# ------------------------------------------------------------
+# ============================================================
 # Register
-# ------------------------------------------------------------
+# ============================================================
 
 Register-ScheduledTask `
-    -TaskName "MP3AlarmCore" `
+    -TaskName $taskName `
     -Action $action `
     -Trigger $trigger `
     -Principal $principal `
@@ -162,33 +199,38 @@ Write-Host "Задача MP3AlarmCore создана."
 Write-Host ""
 
 # ============================================================
-# Проверка созданной задачи
+# Проверка Action
 # ============================================================
 
-Write-Host "== Проверка задачи =="
+Write-Host "== Проверка Scheduled Task =="
 
-$task = Get-ScheduledTask `
-    -TaskName "MP3AlarmCore" `
+$registeredTask = Get-ScheduledTask `
+    -TaskName $taskName `
     -ErrorAction Stop
 
-Write-Host "Task:"
-Write-Host "  $($task.TaskName)"
+$registeredAction = $registeredTask.Actions
 
-Write-Host "State:"
-Write-Host "  $($task.State)"
+Write-Host "Execute:"
+Write-Host "  $($registeredAction.Execute)"
+
+Write-Host "Arguments:"
+Write-Host "  $($registeredAction.Arguments)"
+
+Write-Host "WorkingDirectory:"
+Write-Host "  $($registeredAction.WorkingDirectory)"
 
 Write-Host ""
 
 # ============================================================
-# Запуск Alarm.exe
+# Запуск задачи
 # ============================================================
 
 Write-Host "== Запуск MP3AlarmCore =="
 
 Start-ScheduledTask `
-    -TaskName "MP3AlarmCore"
+    -TaskName $taskName
 
-Start-Sleep -Seconds 2
+Start-Sleep -Seconds 3
 
 # ============================================================
 # Проверка процесса
@@ -200,30 +242,28 @@ $process = Get-Process `
 
 if ($null -ne $process) {
 
-    Write-Host ""
     Write-Host "Alarm.exe успешно запущен."
 
 }
 else {
 
-    Write-Host ""
     Write-Warning "Alarm.exe не обнаружен после запуска задачи."
 
     $taskInfo = Get-ScheduledTaskInfo `
-        -TaskName "MP3AlarmCore"
+        -TaskName $taskName
 
     Write-Host ""
-    Write-Host "Last run:"
+    Write-Host "LastRunTime:"
     Write-Host "  $($taskInfo.LastRunTime)"
 
-    Write-Host "Last result:"
+    Write-Host "LastTaskResult:"
     Write-Host "  $($taskInfo.LastTaskResult)"
 }
 
 Write-Host ""
 
 # ============================================================
-# Ярлыки
+# Пути ярлыков
 # ============================================================
 
 $startMenuDir = Join-Path `
@@ -258,29 +298,35 @@ $WScriptShell = New-Object -ComObject WScript.Shell
 # Start Menu
 # ------------------------------------------------------------
 
-$shortcut = $WScriptShell.CreateShortcut($startMenuShortcut)
+$shortcut = $WScriptShell.CreateShortcut(
+    $startMenuShortcut
+)
 
 $shortcut.TargetPath = $guiPath
 $shortcut.WorkingDirectory = $binDir
 $shortcut.Description = "MP3 Alarm"
+
 $shortcut.Save()
 
 # ------------------------------------------------------------
 # Desktop
 # ------------------------------------------------------------
 
-$shortcut = $WScriptShell.CreateShortcut($desktopShortcut)
+$shortcut = $WScriptShell.CreateShortcut(
+    $desktopShortcut
+)
 
 $shortcut.TargetPath = $guiPath
 $shortcut.WorkingDirectory = $binDir
 $shortcut.Description = "MP3 Alarm"
+
 $shortcut.Save()
 
 Write-Host "Ярлыки созданы."
 Write-Host ""
 
 # ============================================================
-# Готово
+# Завершение
 # ============================================================
 
 Write-Host "========================================"
@@ -288,7 +334,7 @@ Write-Host "        Установка завершена"
 Write-Host "========================================"
 Write-Host ""
 
-Write-Host "Установлено в:"
+Write-Host "Program:"
 Write-Host "  $installDir"
 
 Write-Host ""
@@ -303,15 +349,23 @@ Write-Host "  $guiPath"
 
 Write-Host ""
 
-Write-Host "Scheduled Task:"
-Write-Host "  MP3AlarmCore"
+Write-Host "Launcher:"
+Write-Host "  $launcherPath"
 
 Write-Host ""
 
-Write-Host "Alarm.exe будет запускаться при входе пользователя:"
+Write-Host "Scheduled Task:"
+Write-Host "  $taskName"
+
+Write-Host ""
+
+Write-Host "User:"
 Write-Host "  $taskUser"
 
 Write-Host ""
 
+Write-Host "Alarm.exe будет запускаться при входе пользователя."
+
+Write-Host ""
 Write-Host "Перезагрузка не требуется."
 Write-Host ""

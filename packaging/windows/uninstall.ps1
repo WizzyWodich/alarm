@@ -24,6 +24,14 @@ if (-not $currentPrincipal.IsInRole(
 
 $installDir = Join-Path $env:ProgramFiles "MP3Alarm"
 
+$runtimeDir = Join-Path $env:ProgramData "MP3Alarm"
+
+$launcherPath = Join-Path `
+    $runtimeDir `
+    "run-core.ps1"
+
+$taskName = "MP3AlarmCore"
+
 $startMenuDir = Join-Path `
     $env:APPDATA `
     "Microsoft\Windows\Start Menu\Programs"
@@ -45,7 +53,7 @@ $desktopShortcut = Join-Path `
 Write-Host "== Удаление MP3AlarmCore =="
 
 Unregister-ScheduledTask `
-    -TaskName "MP3AlarmCore" `
+    -TaskName $taskName `
     -Confirm:$false `
     -ErrorAction SilentlyContinue
 
@@ -64,7 +72,8 @@ $alarmProcesses = Get-Process `
 
 if ($null -ne $alarmProcesses) {
 
-    $alarmProcesses | Stop-Process -Force
+    $alarmProcesses |
+        Stop-Process -Force
 
     Write-Host "Alarm.exe остановлен."
 
@@ -77,7 +86,7 @@ else {
 Write-Host ""
 
 # ============================================================
-# Удаление ярлыка из меню Пуск
+# Удаление ярлыка Start Menu
 # ============================================================
 
 Write-Host "== Удаление ярлыка из меню Пуск =="
@@ -99,7 +108,7 @@ else {
 Write-Host ""
 
 # ============================================================
-# Удаление ярлыка с рабочего стола
+# Удаление ярлыка Desktop
 # ============================================================
 
 Write-Host "== Удаление ярлыка с рабочего стола =="
@@ -121,10 +130,10 @@ else {
 Write-Host ""
 
 # ============================================================
-# Удаление программы
+# Удаление Program Files
 # ============================================================
 
-Write-Host "== Удаление MP3 Alarm =="
+Write-Host "== Удаление файлов программы =="
 
 if (Test-Path $installDir) {
 
@@ -133,7 +142,7 @@ if (Test-Path $installDir) {
         -Recurse `
         -Force
 
-    Write-Host "Файлы программы удалены."
+    Write-Host "C:\Program Files\MP3Alarm удалён."
 
 }
 else {
@@ -144,13 +153,77 @@ else {
 Write-Host ""
 
 # ============================================================
-# Готово
+# Удаление Runtime
+# ============================================================
+
+Write-Host "== Удаление Runtime =="
+
+if (Test-Path $runtimeDir) {
+
+    Remove-Item `
+        $runtimeDir `
+        -Recurse `
+        -Force
+
+    Write-Host "C:\ProgramData\MP3Alarm удалён."
+
+}
+else {
+
+    Write-Host "Runtime директория не найдена."
+}
+
+Write-Host ""
+
+# ============================================================
+# Проверка удаления
+# ============================================================
+
+Write-Host "== Проверка =="
+
+$taskExists = Get-ScheduledTask `
+    -TaskName $taskName `
+    -ErrorAction SilentlyContinue
+
+$alarmExists = Get-Process `
+    -Name "Alarm" `
+    -ErrorAction SilentlyContinue
+
+if ($null -eq $taskExists) {
+    Write-Host "Scheduled Task: OK"
+}
+else {
+    Write-Warning "Scheduled Task всё ещё существует."
+}
+
+if ($null -eq $alarmExists) {
+    Write-Host "Alarm.exe: OK"
+}
+else {
+    Write-Warning "Alarm.exe всё ещё запущен."
+}
+
+if (-not (Test-Path $installDir)) {
+    Write-Host "Program Files: OK"
+}
+else {
+    Write-Warning "Директория программы всё ещё существует."
+}
+
+if (-not (Test-Path $runtimeDir)) {
+    Write-Host "ProgramData: OK"
+}
+else {
+    Write-Warning "Runtime директория всё ещё существует."
+}
+
+Write-Host ""
+
+# ============================================================
+# Завершение
 # ============================================================
 
 Write-Host "========================================"
 Write-Host "        Удаление завершено"
 Write-Host "========================================"
-Write-Host ""
-
-Write-Host "MP3 Alarm полностью удалён."
 Write-Host ""
