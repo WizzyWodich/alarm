@@ -6,17 +6,30 @@ Write-Host "========================================"
 Write-Host ""
 
 # ============================================================
+# Проверка прав администратора
+# ============================================================
+
+$currentIdentity = [Security.Principal.WindowsIdentity]::GetCurrent()
+$currentPrincipal = New-Object Security.Principal.WindowsPrincipal($currentIdentity)
+
+if (-not $currentPrincipal.IsInRole(
+    [Security.Principal.WindowsBuiltInRole]::Administrator
+)) {
+    throw "Установщик необходимо запускать от имени администратора."
+}
+
+# ============================================================
 # Пути
 # ============================================================
 
-$installDir = "$env:ProgramFiles\MP3Alarm"
+$installDir = Join-Path $env:ProgramFiles "MP3Alarm"
 $binDir = Join-Path $installDir "bin"
 
 $corePath = Join-Path $binDir "Alarm.exe"
-$guiPath  = Join-Path $binDir "mp3alarm-gui.exe"
+$guiPath = Join-Path $binDir "mp3alarm-gui.exe"
 
 Write-Host "Install directory:"
-Write-Host $installDir
+Write-Host "  $installDir"
 Write-Host ""
 
 # ============================================================
@@ -27,8 +40,9 @@ Write-Host "== Создание директории =="
 
 New-Item `
     -ItemType Directory `
-    -Force `
-    -Path $binDir | Out-Null
+    -Path $binDir `
+    -Force |
+    Out-Null
 
 # ============================================================
 # Копирование файлов
@@ -36,8 +50,10 @@ New-Item `
 
 Write-Host "== Копирование файлов =="
 
+$sourceDir = Split-Path -Parent $PSScriptRoot
+
 Copy-Item `
-    -Path ".\*" `
+    -Path (Join-Path $sourceDir "*") `
     -Destination $installDir `
     -Recurse `
     -Force
@@ -65,120 +81,202 @@ Write-Host "  $guiPath"
 Write-Host ""
 
 # ============================================================
-# Удаляем старую задачу
+# Удаление старой задачи
 # ============================================================
 
 Write-Host "== Удаление старой задачи =="
 
-schtasks /Delete `
-    /TN "MP3AlarmCore" `
-    /F 2>$null
+Unregister-ScheduledTask `
+    -TaskName "MP3AlarmCore" `
+    -Confirm:$false `
+    -ErrorAction SilentlyContinue
+
+Write-Host "Старая задача удалена."
+Write-Host ""
 
 # ============================================================
-# Создание задачи
+# Создание Scheduled Task
 # ============================================================
 
 Write-Host "== Создание задачи MP3AlarmCore =="
 
-$taskCommand = "`"$corePath`""
+$taskUser = "$env:USERDOMAIN\$env:USERNAME"
 
-schtasks /Create `
-    /TN "MP3AlarmCore" `
-    /TR $taskCommand `
-    /SC ONLOGON `
-    /RU "$env:USERNAME" `
-    /RL LIMITED `
-    /F
+Write-Host "Пользователь:"
+Write-Host "  $taskUser"
 
-if ($LASTEXITCODE -ne 0) {
-    throw "Не удалось создать задачу MP3AlarmCore"
-}
+Write-Host "Executable:"
+Write-Host "  $corePath"
 
-Write-Host "Задача успешно создана."
+Write-Host "Working directory:"
+Write-Host "  $binDir"
+
+Write-Host ""
+
+# ------------------------------------------------------------
+# Action
+# ------------------------------------------------------------
+
+$action = New-ScheduledTaskAction `
+    -Execute $corePath `
+    -WorkingDirectory $binDir
+
+# ------------------------------------------------------------
+# Trigger
+# ------------------------------------------------------------
+
+$trigger = New-ScheduledTaskTrigger `
+    -AtLogOn `
+    -User $taskUser
+
+# ------------------------------------------------------------
+# Principal
+# ------------------------------------------------------------
+
+$principal = New-ScheduledTaskPrincipal `
+    -UserId $taskUser `
+    -LogonType Interactive `
+    -RunLevel Limited
+
+# ------------------------------------------------------------
+# Settings
+# ------------------------------------------------------------
+
+$settings = New-ScheduledTaskSettingsSet `
+    -AllowStartIfOnBatteries `
+    -DontStopIfGoingOnBatteries
+
+# ------------------------------------------------------------
+# Register
+# ------------------------------------------------------------
+
+Register-ScheduledTask `
+    -TaskName "MP3AlarmCore" `
+    -Action $action `
+    -Trigger $trigger `
+    -Principal $principal `
+    -Settings $settings `
+    -Force
+
+Write-Host "Задача MP3AlarmCore создана."
 Write-Host ""
 
 # ============================================================
-# Проверка задачи
+# Проверка созданной задачи
 # ============================================================
 
 Write-Host "== Проверка задачи =="
 
-schtasks /Query `
-    /TN "MP3AlarmCore" `
-    /V `
-    /FO LIST
+$task = Get-ScheduledTask `
+    -TaskName "MP3AlarmCore" `
+    -ErrorAction Stop
+
+Write-Host "Task:"
+Write-Host "  $($task.TaskName)"
+
+Write-Host "State:"
+Write-Host "  $($task.State)"
 
 Write-Host ""
 
 # ============================================================
-# Запуск ядра сразу после установки
+# Запуск Alarm.exe
 # ============================================================
 
 Write-Host "== Запуск MP3AlarmCore =="
 
-schtasks /Run `
-    /TN "MP3AlarmCore"
+Start-ScheduledTask `
+    -TaskName "MP3AlarmCore"
 
-if ($LASTEXITCODE -ne 0) {
-    throw "Не удалось запустить MP3AlarmCore"
+Start-Sleep -Seconds 2
+
+# ============================================================
+# Проверка процесса
+# ============================================================
+
+$process = Get-Process `
+    -Name "Alarm" `
+    -ErrorAction SilentlyContinue
+
+if ($null -ne $process) {
+
+    Write-Host ""
+    Write-Host "Alarm.exe успешно запущен."
+
+}
+else {
+
+    Write-Host ""
+    Write-Warning "Alarm.exe не обнаружен после запуска задачи."
+
+    $taskInfo = Get-ScheduledTaskInfo `
+        -TaskName "MP3AlarmCore"
+
+    Write-Host ""
+    Write-Host "Last run:"
+    Write-Host "  $($taskInfo.LastRunTime)"
+
+    Write-Host "Last result:"
+    Write-Host "  $($taskInfo.LastTaskResult)"
 }
 
-Write-Host "MP3AlarmCore запущен."
 Write-Host ""
 
 # ============================================================
-# Ярлык в меню Пуск
+# Ярлыки
 # ============================================================
 
-Write-Host "== Создание ярлыка в меню Пуск =="
+$startMenuDir = Join-Path `
+    $env:APPDATA `
+    "Microsoft\Windows\Start Menu\Programs"
 
-$startMenuDir = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs"
-
-New-Item `
-    -ItemType Directory `
-    -Force `
-    -Path $startMenuDir | Out-Null
+$desktopDir = [Environment]::GetFolderPath("Desktop")
 
 $startMenuShortcut = Join-Path `
     $startMenuDir `
     "MP3 Alarm.lnk"
 
-$shell = New-Object -ComObject WScript.Shell
-
-$shortcut = $shell.CreateShortcut($startMenuShortcut)
-
-$shortcut.TargetPath = $guiPath
-$shortcut.WorkingDirectory = $binDir
-$shortcut.IconLocation = $guiPath
-
-$shortcut.Save()
-
-Write-Host "Создан:"
-Write-Host $startMenuShortcut
-Write-Host ""
-
-# ============================================================
-# Ярлык на рабочем столе
-# ============================================================
-
-Write-Host "== Создание ярлыка на рабочем столе =="
-
-$desktopDir = [Environment]::GetFolderPath("Desktop")
-
 $desktopShortcut = Join-Path `
     $desktopDir `
     "MP3 Alarm.lnk"
 
-$shortcut = $shell.CreateShortcut($desktopShortcut)
+# ============================================================
+# Создание ярлыков
+# ============================================================
+
+Write-Host "== Создание ярлыков =="
+
+New-Item `
+    -ItemType Directory `
+    -Path $startMenuDir `
+    -Force |
+    Out-Null
+
+$WScriptShell = New-Object -ComObject WScript.Shell
+
+# ------------------------------------------------------------
+# Start Menu
+# ------------------------------------------------------------
+
+$shortcut = $WScriptShell.CreateShortcut($startMenuShortcut)
 
 $shortcut.TargetPath = $guiPath
 $shortcut.WorkingDirectory = $binDir
-$shortcut.IconLocation = $guiPath
-
+$shortcut.Description = "MP3 Alarm"
 $shortcut.Save()
 
-Write-Host "Создан:"
-Write-Host $desktopShortcut
+# ------------------------------------------------------------
+# Desktop
+# ------------------------------------------------------------
+
+$shortcut = $WScriptShell.CreateShortcut($desktopShortcut)
+
+$shortcut.TargetPath = $guiPath
+$shortcut.WorkingDirectory = $binDir
+$shortcut.Description = "MP3 Alarm"
+$shortcut.Save()
+
+Write-Host "Ярлыки созданы."
 Write-Host ""
 
 # ============================================================
@@ -188,6 +286,11 @@ Write-Host ""
 Write-Host "========================================"
 Write-Host "        Установка завершена"
 Write-Host "========================================"
+Write-Host ""
+
+Write-Host "Установлено в:"
+Write-Host "  $installDir"
+
 Write-Host ""
 
 Write-Host "Core:"
@@ -200,17 +303,15 @@ Write-Host "  $guiPath"
 
 Write-Host ""
 
-Write-Host "Task:"
+Write-Host "Scheduled Task:"
 Write-Host "  MP3AlarmCore"
 
 Write-Host ""
 
-Write-Host "Проверить процесс:"
-Write-Host '  Get-Process Alarm'
+Write-Host "Alarm.exe будет запускаться при входе пользователя:"
+Write-Host "  $taskUser"
 
 Write-Host ""
 
-Write-Host "Проверить задачу:"
-Write-Host '  schtasks /Query /TN "MP3AlarmCore" /V /FO LIST'
-
+Write-Host "Перезагрузка не требуется."
 Write-Host ""
