@@ -41,6 +41,15 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
+Write-Host "== Запуск ядра =="
+
+schtasks /Run /TN "MP3AlarmCore"
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Не удалось запустить MP3AlarmCore"
+    exit 1
+}
+
 Write-Host "== Ярлык GUI в меню Пуск =="
 
 $startMenuPath = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\MP3 Alarm.lnk"
